@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Supabase Connection Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  </head>
+  <body>
+    <h1>Supabase Connection Test</h1>
+    <div id="result"></div>
+
+    <script>
+      const supabaseUrl = "https://vngviygywvralfxysldu.supabase.co";
+      const supabaseAnonKey =
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZuZ3ZieWd5d3ZyYWxmeHlzbGR1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQ0NDA0NTEsImV4cCI6MjA2MDAxNjQ1MX0.JbLcrShsjRq9ucEVP2sW8WqFdQa_1n-ecnONSLFrpD0";
+
+      const { createClient } = supabase;
+      const client = createClient(supabaseUrl, supabaseAnonKey);
+
+      async function testConnection() {
+        const resultDiv = document.getElementById("result");
+        resultDiv.innerHTML = "Testing connection...";
+
+        try {
+          // Test 1: Basic connection
+          console.log("Testing basic connection...");
+
+          // Test 2: Check auth
+          const {
+            data: { session },
+            error: sessionError,
+          } = await client.auth.getSession();
+          console.log(
+            "Session check:",
+            session ? "Session exists" : "No session",
+            sessionError
+          );
+
+          // Test 3: Try sign up
+          const testEmail = `test-${Date.now()}@example.com`;
+          const { data: signUpData, error: signUpError } =
+            await client.auth.signUp({
+              email: testEmail,
+              password: "TestPassword123!",
+            });
+
+          if (signUpError) {
+            console.error("Sign up error:", signUpError);
+            resultDiv.innerHTML = `
+                        <h2>❌ Connection Failed</h2>
+                        <p><strong>Error:</strong> ${signUpError.message}</p>
+                        <p><strong>Code:</strong> ${
+                          signUpError.status || "Unknown"
+                        }</p>
+                        <details>
+                            <summary>Full Error Details</summary>
+                            <pre>${JSON.stringify(signUpError, null, 2)}</pre>
+                        </details>
+                    `;
+          } else {
+            console.log("Sign up success:", signUpData);
+            resultDiv.innerHTML = `
+                        <h2>✅ Connection Successful!</h2>
+                        <p>Supabase is working correctly.</p>
+                        <p><strong>User ID:</strong> ${signUpData.user?.id}</p>
+                    `;
+          }
+        } catch (error) {
+          console.error("Test failed:", error);
+          resultDiv.innerHTML = `
+                    <h2>💥 Unexpected Error</h2>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                    <details>
+                        <summary>Full Error Details</summary>
+                        <pre>${JSON.stringify(error, null, 2)}</pre>
+                    </details>
+                `;
+        }
+      }
+
+      testConnection();
+    </script>
+  </body>
+</html>
