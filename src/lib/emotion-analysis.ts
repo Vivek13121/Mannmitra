@@ -1,6 +1,7 @@
 import { supabase } from "./supabase";
+import { getChatResponse } from "./ai"; // Import Gemini AI function
 
-interface EmotionAnalysisResult {
+export interface EmotionAnalysisResult {
   primaryEmotion: string;
   emotionScores: { [key: string]: number };
   sentimentScore: number;
@@ -120,9 +121,142 @@ class EmotionAnalysisService {
   };
 
   /**
-   * Analyze text content for emotions and crisis indicators
+   * Analyze text content for emotions and crisis indicators using AI
    */
   async analyzeText(
+    content: string,
+    userId?: string
+  ): Promise<EmotionAnalysisResult> {
+    try {
+      // Use AI to analyze emotions instead of keyword matching
+      const aiEmotionResult = await this.analyzeEmotionWithAI(content);
+
+      // Still use our crisis detection for safety
+      const { isCrisis, crisisIndicators, severity } =
+        this.detectCrisisIndicators(content.toLowerCase());
+
+      // Extract detected keywords for context
+      const detectedKeywords = this.extractKeywords(content.toLowerCase());
+
+      const result: EmotionAnalysisResult = {
+        primaryEmotion: aiEmotionResult.primaryEmotion,
+        emotionScores: aiEmotionResult.emotionScores,
+        sentimentScore: aiEmotionResult.sentimentScore,
+        confidence: aiEmotionResult.confidence,
+        isCrisis,
+        crisisIndicators,
+        detectedKeywords,
+      };
+
+      // Log to database for admin dashboard
+      await this.logEmotionAnalysis(result, "text", userId, content.length);
+
+      // Create crisis alert if necessary
+      if (isCrisis && userId) {
+        await this.createCrisisAlert({
+          anonymousUserId: this.hashUserId(userId),
+          severity,
+          emotionDetected: aiEmotionResult.primaryEmotion,
+          confidenceScore: aiEmotionResult.confidence,
+          keywordsDetected: crisisIndicators,
+          contentSnippet: content.substring(0, 100),
+        });
+      }
+
+      return result;
+    } catch (error) {
+      console.error(
+        "AI emotion analysis failed, falling back to keyword method:",
+        error
+      );
+
+      // Fallback to keyword-based analysis if AI fails
+      return this.analyzeTextFallback(content, userId);
+    }
+  }
+
+  /**
+   * AI-powered emotion analysis using Gemini
+   */
+  private async analyzeEmotionWithAI(content: string): Promise<{
+    primaryEmotion: string;
+    emotionScores: { [key: string]: number };
+    sentimentScore: number;
+    confidence: number;
+  }> {
+    const emotionPrompt = {
+      role: "user" as const,
+      content: `Analyze the emotional content of this text and provide a detailed emotion analysis. Text: "${content}"
+
+Please respond ONLY with a JSON object in this exact format (no additional text):
+{
+  "primaryEmotion": "one of: happy, sad, angry, anxious, stressed, neutral, fear, joy",
+  "emotionScores": {
+    "happy": 0.0,
+    "sad": 0.0,
+    "angry": 0.0,
+    "anxious": 0.0,
+    "stressed": 0.0,
+    "fear": 0.0,
+    "joy": 0.0,
+    "neutral": 0.0
+  },
+  "sentimentScore": 0.0,
+  "confidence": 0.0
+}
+
+Rules:
+- emotionScores should sum to 1.0
+- sentimentScore should be between -1.0 (very negative) and 1.0 (very positive)
+- confidence should be between 0.0 and 1.0
+- Analyze the actual emotional tone, not just keywords
+- Consider context, intensity, and overall feeling`,
+    };
+
+    try {
+      const response = await getChatResponse([emotionPrompt]);
+
+      // Try to extract JSON from the response
+      const jsonMatch = response.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        throw new Error("No JSON found in AI response");
+      }
+
+      const result = JSON.parse(jsonMatch[0]);
+
+      // Validate the response structure
+      if (
+        !result.primaryEmotion ||
+        !result.emotionScores ||
+        typeof result.sentimentScore !== "number" ||
+        typeof result.confidence !== "number"
+      ) {
+        throw new Error("Invalid AI response structure");
+      }
+
+      // Ensure emotion scores sum to 1.0
+      const totalScore = Object.values(result.emotionScores).reduce(
+        (sum: number, score: any) => sum + score,
+        0
+      );
+      if (totalScore > 0) {
+        Object.keys(result.emotionScores).forEach((emotion) => {
+          result.emotionScores[emotion] =
+            result.emotionScores[emotion] / totalScore;
+        });
+      }
+
+      return result;
+    } catch (error) {
+      console.error("AI emotion analysis error:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Fallback keyword-based analysis (original method)
+   */
+  private async analyzeTextFallback(
     content: string,
     userId?: string
   ): Promise<EmotionAnalysisResult> {
@@ -457,4 +591,3 @@ class EmotionAnalysisService {
 }
 
 export const emotionAnalysisService = new EmotionAnalysisService();
-export type { EmotionAnalysisResult };
