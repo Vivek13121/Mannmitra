@@ -1,7 +1,7 @@
 // Google Gemini API configuration for MannMitra
-// Uses a current stable Gemini Flash model with retry handling for transient API errors.
+// Uses a stable Flash model with bounded retries and a request timeout.
 const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 const SYSTEM_PROMPT = `You are an empathetic and professional AI mental health assistant for the MannMitra platform. Your role is to provide emotional support, guide users through evidence-based therapeutic techniques, and offer practical mental wellness advice.
 
@@ -28,26 +28,32 @@ const DEFAULT_WELLNESS_PLAN = [
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function callGemini(requestBody: unknown, apiKey: string): Promise<any> {
-  const maxRetries = 3;
+  const maxRetries = 1;
+  const timeoutMs = 15000;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
+
     try {
       const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(requestBody),
+        signal: controller.signal,
       });
+
+      window.clearTimeout(timeout);
 
       if (response.ok) return await response.json();
 
       const errorData = await response.json().catch(() => ({}));
       console.error("Gemini API error:", response.status, errorData);
 
-      // 503/5xx and 429 are transient. Retry with exponential backoff + jitter.
+      // Retry once for transient failures, then fail fast so the UI never hangs.
       const retryable = response.status === 429 || response.status === 408 || response.status >= 500;
       if (retryable && attempt < maxRetries) {
-        const delay = 1000 * 2 ** attempt + Math.random() * 500;
-        await sleep(delay);
+        await sleep(1000);
         continue;
       }
 
@@ -55,11 +61,22 @@ async function callGemini(requestBody: unknown, apiKey: string): Promise<any> {
       (error as any).status = response.status;
       throw error;
     } catch (error: any) {
+      window.clearTimeout(timeout);
+
+      if (error?.name === "AbortError") {
+        const timeoutError = new Error("Gemini API request timed out");
+        (timeoutError as any).status = 408;
+        if (attempt < maxRetries) {
+          await sleep(500);
+          continue;
+        }
+        throw timeoutError;
+      }
+
       if (error?.status !== undefined) throw error;
 
       if (attempt < maxRetries) {
-        const delay = 1000 * 2 ** attempt + Math.random() * 500;
-        await sleep(delay);
+        await sleep(500);
         continue;
       }
       throw error;
@@ -136,10 +153,13 @@ export async function getChatResponse(
       return "The configured Gemini AI model is unavailable. Please update the AI configuration.";
     }
     if (error?.status === 429) {
-      return "The AI service is temporarily busy. Please wait a moment and try again.";
+      return "The AI service is temporarily busy. Please try again in a moment.";
     }
     if (error?.status >= 500) {
       return "The AI service is temporarily unavailable. Please try again in a moment.";
+    }
+    if (error?.status === 408) {
+      return "The AI service took too long to respond. Please try again.";
     }
     return "I'm having trouble connecting to the AI service. Please try again shortly.";
   }
