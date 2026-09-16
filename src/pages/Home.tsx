@@ -4,14 +4,10 @@ import FeatureSection from "../components/FeatureSection";
 import SIHSolutionFlow from "../components/SIHSolutionFlow";
 import AssessmentSection from "../components/AssessmentSection";
 
-interface HomeProps {
-  onShowAuth: () => void;
-}
-
-const Home = ({ onShowAuth }: HomeProps) => {
+const Home = () => {
   return (
     <main>
-      <HeroSection onShowAuth={onShowAuth} />
+      <HeroSection />
       <SIHProblemSection />
       <FeatureSection />
       <SIHSolutionFlow />
