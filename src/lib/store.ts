@@ -1,12 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { addDays, startOfToday } from "date-fns";
-import { supabase } from "./supabase"; // Using real Supabase
-import type {
-  UserChatHistory,
-  UserMoodEntry,
-  UserWellnessPlan,
-} from "./supabase";
+import { startOfToday } from "date-fns";
+import { supabase } from "./supabase";
 
 interface MoodEntry {
   id: string;
@@ -25,11 +20,7 @@ interface ChatMessage {
 interface WellnessPlan {
   id: string;
   date: Date;
-  tasks: {
-    id: string;
-    title: string;
-    completed: boolean;
-  }[];
+  tasks: { id: string; title: string; completed: boolean }[];
 }
 
 interface AppState {
@@ -37,10 +28,7 @@ interface AppState {
   chatHistory: ChatMessage[];
   wellnessPlans: WellnessPlan[];
   addMoodEntry: (mood: number, notes: string) => Promise<void>;
-  addChatMessage: (
-    role: "user" | "assistant",
-    content: string
-  ) => Promise<void>;
+  addChatMessage: (role: "user" | "assistant", content: string) => Promise<void>;
   addWellnessPlan: (tasks: string[]) => Promise<void>;
   toggleTask: (planId: string, taskId: string) => Promise<void>;
   clearChatHistory: () => Promise<void>;
@@ -54,191 +42,86 @@ export const useStore = create<AppState>()(
       chatHistory: [],
       wellnessPlans: [],
 
-      addMoodEntry: async (mood: number, notes: string) => {
-        const user = await supabase.auth.getUser();
-        if (!user.data.user) return;
+      addMoodEntry: async (mood, notes) => {
+        const entry: MoodEntry = { id: crypto.randomUUID(), date: new Date(), mood, notes };
+        set((state) => ({ moodEntries: [...state.moodEntries, entry] }));
 
-        const entry = {
-          id: crypto.randomUUID(),
-          date: new Date(),
-          mood,
-          notes,
-        };
-
-        const { error } = await supabase.from("user_mood_entries").insert({
-          user_id: user.data.user.id,
-          mood,
-          notes,
-          date: entry.date,
-        });
-
-        if (!error) {
-          set((state) => ({
-            moodEntries: [...state.moodEntries, entry],
-          }));
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("user_mood_entries").insert({ user_id: user.id, mood, notes, date: entry.date });
         }
       },
 
-      addChatMessage: async (role: "user" | "assistant", content: string) => {
-        const user = await supabase.auth.getUser();
-        if (!user.data.user) return;
+      addChatMessage: async (role, content) => {
+        const message: ChatMessage = { id: crypto.randomUUID(), role, content, timestamp: new Date() };
+        set((state) => ({ chatHistory: [...state.chatHistory, message] }));
 
-        const message = {
-          id: crypto.randomUUID(),
-          role,
-          content,
-          timestamp: new Date(),
-        };
-
-        const { error } = await supabase.from("user_chat_history").insert({
-          user_id: user.data.user.id,
-          role,
-          content,
-          timestamp: message.timestamp,
-        });
-
-        if (!error) {
-          set((state) => ({
-            chatHistory: [...state.chatHistory, message],
-          }));
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("user_chat_history").insert({ user_id: user.id, role, content, timestamp: message.timestamp });
         }
       },
 
-      addWellnessPlan: async (tasks: string[]) => {
-        const user = await supabase.auth.getUser();
-        if (!user.data.user) return;
-
-        const plan = {
+      addWellnessPlan: async (tasks) => {
+        const plan: WellnessPlan = {
           id: crypto.randomUUID(),
           date: startOfToday(),
-          tasks: tasks.map((title) => ({
-            id: crypto.randomUUID(),
-            title,
-            completed: false,
-          })),
+          tasks: tasks.map((title) => ({ id: crypto.randomUUID(), title, completed: false })),
         };
+        set((state) => ({ wellnessPlans: [...state.wellnessPlans, plan] }));
 
-        const { error } = await supabase.from("user_wellness_plans").insert({
-          user_id: user.data.user.id,
-          date: plan.date,
-          tasks: plan.tasks,
-        });
-
-        if (!error) {
-          set((state) => ({
-            wellnessPlans: [...state.wellnessPlans, plan],
-          }));
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("user_wellness_plans").insert({ user_id: user.id, date: plan.date, tasks: plan.tasks });
         }
       },
 
-      toggleTask: async (planId: string, taskId: string) => {
-        const user = await supabase.auth.getUser();
-        if (!user.data.user) return;
-
+      toggleTask: async (planId, taskId) => {
         const updatedPlans = get().wellnessPlans.map((plan) =>
           plan.id === planId
-            ? {
-                ...plan,
-                tasks: plan.tasks.map((task) =>
-                  task.id === taskId
-                    ? { ...task, completed: !task.completed }
-                    : task
-                ),
-              }
+            ? { ...plan, tasks: plan.tasks.map((task) => task.id === taskId ? { ...task, completed: !task.completed } : task) }
             : plan
         );
-
         const plan = updatedPlans.find((p) => p.id === planId);
         if (!plan) return;
+        set({ wellnessPlans: updatedPlans });
 
-        const { error } = await supabase
-          .from("user_wellness_plans")
-          .update({
-            tasks: plan.tasks,
-          })
-          .eq("id", planId)
-          .eq("user_id", user.data.user.id);
-
-        if (!error) {
-          set({ wellnessPlans: updatedPlans });
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("user_wellness_plans").update({ tasks: plan.tasks }).eq("id", planId).eq("user_id", user.id);
         }
       },
 
       clearChatHistory: async () => {
-        const user = await supabase.auth.getUser();
-        if (!user.data.user) return;
-
-        const { error } = await supabase
-          .from("user_chat_history")
-          .delete()
-          .eq("user_id", user.data.user.id);
-
-        if (!error) {
-          set({ chatHistory: [] });
+        set({ chatHistory: [] });
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          await supabase.from("user_chat_history").delete().eq("user_id", user.id);
         }
       },
 
       loadUserData: async () => {
-        const user = await supabase.auth.getUser();
-        if (!user.data.user) return;
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
 
         const [chatHistory, moodEntries, wellnessPlans] = await Promise.all([
-          supabase
-            .from("user_chat_history")
-            .select("*")
-            .eq("user_id", user.data.user.id)
-            .order("timestamp", { ascending: true }),
-          supabase
-            .from("user_mood_entries")
-            .select("*")
-            .eq("user_id", user.data.user.id)
-            .order("date", { ascending: true }),
-          supabase
-            .from("user_wellness_plans")
-            .select("*")
-            .eq("user_id", user.data.user.id)
-            .order("date", { ascending: true }),
+          supabase.from("user_chat_history").select("*").eq("user_id", user.id).order("timestamp", { ascending: true }),
+          supabase.from("user_mood_entries").select("*").eq("user_id", user.id).order("date", { ascending: true }),
+          supabase.from("user_wellness_plans").select("*").eq("user_id", user.id).order("date", { ascending: true }),
         ]);
 
         set({
-          chatHistory:
-            chatHistory.data?.map((msg) => ({
-              id: msg.id,
-              role: msg.role as "user" | "assistant",
-              content: msg.content,
-              timestamp: new Date(msg.timestamp),
-            })) || [],
-          moodEntries:
-            moodEntries.data?.map((entry) => ({
-              id: entry.id,
-              date: new Date(entry.date),
-              mood: entry.mood,
-              notes: entry.notes || "",
-            })) || [],
-          wellnessPlans:
-            wellnessPlans.data?.map((plan) => ({
-              id: plan.id,
-              date: new Date(plan.date),
-              tasks: plan.tasks,
-            })) || [],
+          chatHistory: chatHistory.data?.map((msg) => ({ id: msg.id, role: msg.role as "user" | "assistant", content: msg.content, timestamp: new Date(msg.timestamp) })) || [],
+          moodEntries: moodEntries.data?.map((entry) => ({ id: entry.id, date: new Date(entry.date), mood: entry.mood, notes: entry.notes || "" })) || [],
+          wellnessPlans: wellnessPlans.data?.map((plan) => ({ id: plan.id, date: new Date(plan.date), tasks: plan.tasks })) || [],
         });
       },
     }),
-    {
-      name: "mannmitra-storage",
-    }
+    { name: "mannmitra-storage" }
   )
 );
 
-// Subscribe to auth state changes
-supabase.auth.onAuthStateChange((event, session) => {
-  if (event === "SIGNED_IN") {
-    useStore.getState().loadUserData();
-  } else if (event === "SIGNED_OUT") {
-    useStore.setState({
-      moodEntries: [],
-      chatHistory: [],
-      wellnessPlans: [],
-    });
-  }
+// Keep signed-in/admin flows compatible. Anonymous users rely entirely on Zustand persistence.
+supabase.auth.onAuthStateChange((event) => {
+  if (event === "SIGNED_IN") useStore.getState().loadUserData();
 });
