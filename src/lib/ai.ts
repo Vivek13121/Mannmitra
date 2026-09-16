@@ -1,6 +1,7 @@
 // Google Gemini API configuration for mental health chatbot
+// Gemini 2.0 Flash Experimental was shut down. Use a current stable model.
 const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent";
 
 const SYSTEM_PROMPT = `You are an empathetic and professional AI mental health assistant for the MannMitra platform. Your role is to provide emotional support, guide users through evidence-based therapeutic techniques, and offer practical mental wellness advice.
 
@@ -34,7 +35,6 @@ export async function getChatResponse(
       .map((msg) => `${msg.role === "user" ? "User" : "Adma"}: ${msg.content}`)
       .join("\n");
 
-    // Create the prompt with system instructions and conversation context
     const fullPrompt = `${SYSTEM_PROMPT}
 
 Previous conversation:
@@ -53,11 +53,7 @@ Please respond to the user's message. Keep your response supportive, practical, 
         },
       ],
       generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
         maxOutputTokens: 300,
-        stopSequences: [],
       },
       safetySettings: [
         {
@@ -91,8 +87,12 @@ Please respond to the user's message. Keep your response supportive, practical, 
       const errorData = await response.json().catch(() => ({}));
       console.error("Gemini API error:", response.status, errorData);
 
-      if (response.status === 403) {
-        return "I'm currently experiencing high demand. Please try again in a few moments. Your mental wellness is important to me!";
+      if (response.status === 400) {
+        return "The AI request could not be processed. Please try again in a moment.";
+      } else if (response.status === 401 || response.status === 403) {
+        return "The AI service rejected the API key. Please check the Gemini API key configuration.";
+      } else if (response.status === 404) {
+        return "The configured Gemini AI model is unavailable. Please update the AI configuration.";
       } else if (response.status === 429) {
         return "I'm receiving many requests right now. Please wait a moment and try again. I'm here to support you!";
       } else {
@@ -109,16 +109,14 @@ Please respond to the user's message. Keep your response supportive, practical, 
     ) {
       const aiResponse = data.candidates[0].content.parts[0].text.trim();
 
-      // Clean up the response more thoroughly
       let cleanedResponse = aiResponse
         .replace(/^Adma:\s*/i, "")
         .replace(/^Assistant:\s*/i, "")
         .replace(/^AI:\s*/i, "")
         .replace(/^Bot:\s*/i, "")
-        .replace(/^\*.*?\*:\s*/i, "") // Remove any name in asterisks
+        .replace(/^\*.*?\*:\s*/i, "")
         .trim();
 
-      // Remove any remaining Adma references at the start
       while (cleanedResponse.match(/^(Adma|Assistant|AI|Bot)[\s:]/i)) {
         cleanedResponse = cleanedResponse
           .replace(/^(Adma|Assistant|AI|Bot)[\s:]+/i, "")
@@ -173,7 +171,7 @@ ${moodSummary}
 
 Please provide 5 personalized wellness activities that are:
 - Specific and actionable
-- Appropriate for the user's current mood state  
+- Appropriate for the user's current mood state
 - Evidence-based for mental health improvement
 - Realistic to complete in 10-30 minutes each
 
@@ -190,11 +188,7 @@ Format: Just list the 5 activities, one per line, without numbering.`;
         },
       ],
       generationConfig: {
-        temperature: 0.7,
-        topK: 40,
-        topP: 0.95,
         maxOutputTokens: 200,
-        stopSequences: [],
       },
     };
 
@@ -207,7 +201,8 @@ Format: Just list the 5 activities, one per line, without numbering.`;
     });
 
     if (!response.ok) {
-      console.error("Gemini API error for wellness plan:", response.status);
+      const errorData = await response.json().catch(() => ({}));
+      console.error("Gemini API error for wellness plan:", response.status, errorData);
       return DEFAULT_WELLNESS_PLAN;
     }
 
