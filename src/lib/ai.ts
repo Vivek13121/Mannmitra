@@ -1,7 +1,7 @@
 // Google Gemini API configuration for MannMitra
-// Uses a stable Flash model with bounded retries and a request timeout.
+// Uses Gemini 3.8 Flash with bounded retries and a request timeout.
 const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent";
 
 const SYSTEM_PROMPT = `You are an empathetic and professional AI mental health assistant for the MannMitra platform. Your role is to provide emotional support, guide users through evidence-based therapeutic techniques, and offer practical mental wellness advice.
 
