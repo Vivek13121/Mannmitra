@@ -1,6 +1,6 @@
 // Google Gemini API configuration for MannMitra.
-// Use Gemini 3.6 Flash directly for fast responses.
-const GEMINI_MODEL = "gemini-3.6-flash";
+// Gemini 3.5 Flash-Lite is optimized for low-latency, high-throughput requests.
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
 const GEMINI_API_BASE =
   "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -27,7 +27,7 @@ const DEFAULT_WELLNESS_PLAN = [
 ];
 
 async function callGemini(requestBody: unknown, apiKey: string): Promise<any> {
-  const timeoutMs = 10000;
+  const timeoutMs = 8000;
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
 
@@ -101,7 +101,7 @@ export async function getChatResponse(
         ],
       },
     ],
-    generationConfig: { maxOutputTokens: 300 },
+    generationConfig: { maxOutputTokens: 180 },
     safetySettings: [
       { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
       { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_MEDIUM_AND_ABOVE" },
@@ -167,7 +167,7 @@ export async function generateWellnessPlan(
         ],
       },
     ],
-    generationConfig: { maxOutputTokens: 200 },
+    generationConfig: { maxOutputTokens: 120 },
   };
 
   try {
