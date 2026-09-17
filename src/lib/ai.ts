@@ -1,12 +1,6 @@
 // Google Gemini API configuration for MannMitra.
-// Uses multiple stable Flash models so a temporary outage on one model
-// does not take the whole AI experience offline.
-const GEMINI_MODELS = [
-  "gemini-3.8-flash",
-  "gemini-3.7-flash",
-  "gemini-3.6-flash",
-];
-
+// Use Gemini 3.6 Flash directly for fast responses.
+const GEMINI_MODEL = "gemini-3.6-flash";
 const GEMINI_API_BASE =
   "https://generativelanguage.googleapis.com/v1beta/models";
 
@@ -32,93 +26,45 @@ const DEFAULT_WELLNESS_PLAN = [
   "Do a gentle stretching or movement activity",
 ];
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function callGemini(requestBody: unknown, apiKey: string): Promise<any> {
-  const timeoutMs = 15000;
-  let lastError: any = null;
+  const timeoutMs = 10000;
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
 
-  for (const model of GEMINI_MODELS) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const controller = new AbortController();
-      const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
-
-      try {
-        const response = await fetch(
-          `${GEMINI_API_BASE}/${model}:generateContent?key=${apiKey}`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-            signal: controller.signal,
-          }
-        );
-
-        window.clearTimeout(timeout);
-
-        if (response.ok) {
-          if (model !== GEMINI_MODELS[0]) {
-            console.info(`Gemini fallback model used: ${model}`);
-          }
-          return await response.json();
-        }
-
-        const errorData = await response.json().catch(() => ({}));
-        console.error(`Gemini ${model} error:`, response.status, errorData);
-
-        const retryable =
-          response.status === 429 ||
-          response.status === 408 ||
-          response.status >= 500;
-
-        const error = new Error(
-          `Gemini API request failed with status ${response.status}`
-        );
-        (error as any).status = response.status;
-        (error as any).model = model;
-        lastError = error;
-
-        // Retry transient failures once, then move to the next stable model.
-        if (retryable && attempt === 0) {
-          await sleep(800);
-          continue;
-        }
-
-        // A missing model or persistent transient error should fall through
-        // to the next model instead of taking the whole chat offline.
-        break;
-      } catch (error: any) {
-        window.clearTimeout(timeout);
-
-        if (error?.name === "AbortError") {
-          const timeoutError = new Error("Gemini API request timed out");
-          (timeoutError as any).status = 408;
-          (timeoutError as any).model = model;
-          lastError = timeoutError;
-
-          if (attempt === 0) {
-            await sleep(500);
-            continue;
-          }
-          break;
-        }
-
-        if (error?.status !== undefined) {
-          lastError = error;
-          break;
-        }
-
-        lastError = error;
-        if (attempt === 0) {
-          await sleep(500);
-          continue;
-        }
-        break;
+  try {
+    const response = await fetch(
+      `${GEMINI_API_BASE}/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+        signal: controller.signal,
       }
-    }
-  }
+    );
 
-  throw lastError || new Error("Gemini API request failed after fallback models");
+    window.clearTimeout(timeout);
+
+    if (response.ok) return await response.json();
+
+    const errorData = await response.json().catch(() => ({}));
+    console.error(`Gemini ${GEMINI_MODEL} error:`, response.status, errorData);
+
+    const error = new Error(
+      `Gemini API request failed with status ${response.status}`
+    );
+    (error as any).status = response.status;
+    throw error;
+  } catch (error: any) {
+    window.clearTimeout(timeout);
+
+    if (error?.name === "AbortError") {
+      const timeoutError = new Error("Gemini API request timed out");
+      (timeoutError as any).status = 408;
+      throw timeoutError;
+    }
+
+    throw error;
+  }
 }
 
 function getApiKey(): string | null {
@@ -194,7 +140,7 @@ export async function getChatResponse(
       return "The AI service took too long to respond. Please try again.";
     }
     if (error?.status === 404) {
-      return "The configured Gemini AI models are unavailable. Please try again later.";
+      return "The configured Gemini AI model is unavailable. Please try again later.";
     }
     return "I'm having trouble connecting to the AI service. Please try again shortly.";
   }
