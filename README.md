@@ -1,5 +1,7 @@
 # MannMitra
 
+**Live Demo:** https://rad-beijinho-e5c88a.netlify.app/
+
 **Digital Mental Health & Psychological Support Platform for Students**
 
 MannMitra is a digital mental health platform designed to make psychological support more accessible and proactive for college students. It combines **emotional analysis, personalized support, counsellor access, crisis support, and institutional insights** in one platform.
